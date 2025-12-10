@@ -1,0 +1,394 @@
+---
+title: "Homework 6"
+output: github_document
+---
+
+# Problem 1. Logistic Regression on Homicides
+homicides in 50 large U.S cities 
+create a _city_state_ variable (e.g., Baltimore, MD), and a binary variable indicating whether the homicide is solved. 
+Omit cities: Dallas, Tx ; Phoeniz, AZ; Kansas City, MO; Tulsa, AL
+limit analysis: victim_race (white or black)
+victim_age (numeric)
+## Part1.
+```{r}
+library(tidyverse)
+library(broom)
+```
+
+```{r}
+# load raw data
+homicide_df = read_csv("homicide-data.csv")
+
+# clean and filter
+homicide_cleaned = homicide_df %>%
+  mutate(
+    city_state = str_c(city, ", ", state),
+    # 1 if solved, 0 otherwise
+    resolved = as.numeric(disposition == "Closed by arrest"), 
+    victim_age = as.numeric(victim_age)
+  ) %>%
+  
+  filter(
+    !city_state %in% c("Dallas, TX", "Phoenix, AZ", "Kansas City, MO", "Tulsa, AL"),
+    victim_race %in% c("White", "Black")
+  ) %>%
+  # remove rows with missing age
+  drop_na(victim_age)
+
+head(homicide_cleaned)
+```
+
+For Baltimore, MD
+use _glm_ function to fit a logistic regression with resolved vs unresolved as the outcome and victim age, sex, and race as predictors
+save the output of _glm_ as an R object
+apply _broom::tidy_ to this object
+obtain the estimate and confidence interval of the adjusted odd ratio for solving homicides comparing male victims to female victims keeping all other variable fixed.
+## Part2.
+```{r}
+# filter for baltimore
+baltimore_df = homicide_cleaned %>%
+  filter(city_state == "Baltimore, MD")
+
+# fit logistic regression
+# family = binomial() specifies logistic regression
+fit_baltimore = glm(resolved ~ victim_age + victim_sex + victim_race,
+                    data = baltimore_df,
+                    family = binomial())
+
+# extract adjusted odds ratio for male vs female
+baltimore_results = broom::tidy(fit_baltimore, conf.int = TRUE) %>%
+  mutate(
+    OR = exp(estimate),
+    conf.low = exp(conf.low),
+    conf.high = exp(conf.high)
+  ) %>%
+  filter(term == "victim_sexMale") %>%
+  select (term, OR, conf.low, conf.high)
+
+baltimore_results
+```
+
+run _glm_ for each of the cities in your dataset, and extract the adjusted odds ratio (and CI) for solving homicides comparing male victims to female victims. 
+Do this within a "tidy" pipeline, making use of _purrr::map_, list columns, and unnest as necessary to create a dataframe with estimated ORs and CIs for each city.
+## Part 3
+```{r}
+city_results = homicide_cleaned %>%
+  nest(data = - city_state) %>%
+  mutate(
+    # fit models for each city
+    models = map(data, \(df) glm(resolved ~ victim_age + victim_sex + victim_race,
+                                 data = df,
+                                 family = binomial())),
+    # extract estimates with CI
+    results = map(models, \(mod) broom::tidy(mod, conf.int = TRUE))
+  ) %>%
+  unnest(results) %>%
+  
+  # calculate odds ratios and filter for sex
+  mutate(
+    OR = exp(estimate),
+    conf.low = exp(conf.low),
+    conf.high = exp(conf.high)
+  ) %>%
+  filter(term == "victim_sexMale") %>%
+  select(city_state, OR, conf.low, conf.high)
+
+head(city_results)
+```
+create a plot that shows the estimated ORs and Cis for each city. Organize cities according to estimated OR, and comment on the plot
+## Part4.
+```{r}
+city_results %>%
+  mutate(city_state = fct_reorder(city_state, OR)) %>%
+  ggplot(aes(x = city_state, y = OR)) +
+  geom_point() +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high)) +
+  # reference line for null effect
+  geom_hline(yintercept = 1, color = "red", linetype = "dashed") +
+  coord_flip() +
+  labs(
+    title = "Odds Ratio of Solving Homicides (Male vs. Female Victims)",
+    subtitle = "Adjusted for victim age and race",
+    x = "City",
+    y = "Odds Ratio (Male vs. Female)"
+  ) +
+     theme_minimal()
+```
+Comment on Results:
+- OR < 1: In most, cities, the estimated Odds Ratio is less than (to the left of the red line). This indicates that homicides with Male victims are less likely to be solved than those with Female victims, holding age and race constant. 
+
+- Statistical Signficance: For cities where the error bar does not cross the red line (OR = 1),
+this difference is statistically significant
+
+- Variation: There is substantial variation. Some cities (like New York or Fresno) have very low ORs (much harder to solve male cases), while others are closer to 1 (no significant difference)
+
+# Problem 2.
+Central Park weather data
+
+## Part1.
+
+```{r}
+library(tidyverse)
+library(p8105.datasets)
+library(broom)
+```
+
+The bootstrap is helpful when you'd like to perform inference for a parameter / value / summary that doesn't have an easy-to-write-down distribution in the usual repeated sampling framework.
+simple linear regression with tmax as the response with tmin and prcp as the predictors,
+and are interested in the distribution of two quantities estimated from these data:
+
+Use 5000 bootstrap samples and, for each bootstrap sample, produce estimates of these two quantities.
+Plot the distribution of your estimates, and describe these in words. Using the 5000 bootstrap estimates, identify the 2.5% and 97.5% quantiles to provide a 95% confidence interval for 
+
+## Part2.resample - fit model - extract values - repeat
+
+```{r}
+# Load Data
+data("weather_df")
+
+weather_df = 
+  weather_df %>% 
+  select(tmax, tmin, prcp)
+
+# Creat empty vectors to store results
+boot_r2 = numeric(5000)
+boot_log_beta = numeric(5000)
+
+set.seed(1) # For reproducibility
+
+# Loop 5000 times, performing sampling and model fitting in each iteration
+for (i in 1:5000) {
+  
+  # (1) Resample with replacement (The core of bootstrapping)
+  sample_data = sample_frac(weather_df, size = 1, replace = TRUE)
+  
+  # (2) Fit the linear model: tmax ~ tmin + prcp
+  model = lm(tmax ~ tmin + prcp, data = sample_data)
+  
+  # (3) Extract R-squared
+  boot_r2[i] = summary(model)$r.squared
+  
+  # (4) Extract coefficients (beta1 for tmin, beta2 for prcp)
+  # coef(model) returns vector: [Intercept, tmin, prcp]
+  betas = coef(model)
+  beta1 = betas["tmin"] # tmin coefficient
+  beta2 = betas["prcp"] # prcp coefficient
+  
+  # (5) Calculate log(beta1 * beta2)
+  # Note: If the product is negative, this produces NaN (Not a Number)
+  boot_log_beta[i] = log(beta1 * beta2)
+}
+
+# Check the first few results
+head(boot_r2)
+head(boot_log_beta)
+```
+
+## Part3.
+
+```{r}
+library(tidyverse)
+library(p8105.datasets)
+library(modelr)
+library(broom)
+
+data("weather_df")
+
+# Create a dataframe containing 5000 bootstrap samples
+boot_straps = 
+  weather_df %>% 
+  modelr::bootstrap(n = 5000)
+
+# Fit models and extract results using map
+bootstrap_results = 
+  boot_straps %>% 
+  mutate(
+    # Fit the linear model to each bootstrap sample (strap)
+    models = map(strap, \(df) lm(tmax ~ tmin + prcp, data = df)),
+    
+    # Extract R-squared using glance()
+    r2_results = map(models, broom::glance),
+    
+    # Extract coefficients using tidy()
+    coef_results = map(models, broom::tidy)
+  ) %>% 
+  # Select only relevant columns
+  select(.id, r2_results, coef_results)
+```
+
+## Part4. Wrangling, Inference, Visualization
+
+```{r}
+final_results = 
+  bootstrap_results %>% 
+  unnest(coef_results) %>%
+  select(.id, r2_results, term, estimate) %>% 
+  unnest(r2_results) %>% 
+  select(.id, r.squared, term, estimate) %>% 
+  
+  pivot_wider(
+    names_from = term,
+    values_from = estimate
+  ) %>% 
+  
+  # Calculate log(beta1 * beta2)
+  mutate(
+    log_beta1_beta2 = log(tmin * prcp)
+  )
+```
+
+```{r}
+plot_r2 = 
+  final_results %>% 
+  ggplot(aes(x = r.squared)) +
+  geom_density(fill = "blue", alpha = 0.5) +
+  labs(title = "Bootstrap Distribution of R-squared", x = "R-squared")
+
+plot_log_beta =
+  final_results %>%
+  filter(is.finite(log_beta1_beta2)) %>%
+  ggplot(aes(x = log_beta1_beta2)) +
+  geom_density(fill = "green", alpha = 0.5) +
+  labs(title = "Bootstrap Distribution of log(beta1 * beta2)", x = "log(beta1 * beta2)")
+
+print(plot_r2)
+print(plot_log_beta)
+```
+
+```{r}
+ci_results = 
+  final_results %>%
+  summarize(
+    r2_lower = quantile(r.squared, 0.025),
+    r2_upper = quantile(r.squared, 0.975),
+    
+    # na.rm = TRUE is important if log produced NaNs (due to negative products)
+    log_beta_lower = quantile(log_beta1_beta2, 0.025, na.rm = TRUE),
+    log_beta_upper = quantile(log_beta1_beta2, 0.975, na.rm = TRUE)
+  )
+
+# Display the Confidence Intervals
+print(ci_results)
+
+```
+
+# Problem 3
+analyze data gathered to understand the effects of several variables on a child's birthweight.
+dataset consists of roughly 4000 children and incldues the following variables:
+babysex, bhead, blenght, bwt, delwt, fincome, frace, gaweek, malform, menarche, mheighth, momage, mrace, parity, pnumlbw, pnumgsa, ppbmi, ppwt, smoken, wtgain
+
+Load and clean the data for regression analysis 
+Propose a regression model for birthweight.
+
+```{r}
+library(tidyverse)
+library(modelr)
+library(mgcv)
+
+# 1. Load and Clean
+birthweight = read_csv("./birthweight.csv") %>% 
+  janitor::clean_names() %>%
+  mutate(
+    babysex = as.factor(babysex),
+    frace = as.factor(frace),
+    mrace = as.factor(mrace),
+    malform = as.factor(malform)
+  )
+
+# 2. Fit Proposed Model and Plot Residuals
+model_proposed = lm(bwt ~ gaweeks + ppbmi + smoken + wtgain + mrace + babysex, data = birthweight)
+
+birthweight %>% 
+  add_predictions(model_proposed) %>% 
+  add_residuals(model_proposed) %>% 
+  ggplot(aes(x = pred, y = resid)) + 
+  geom_point(alpha = 0.5) +
+  geom_hline(yintercept = 0, color = "red") +
+  labs(title = "Residuals vs Fitted Values (Proposed Model)",
+       x = "Fitted Values", y = "Residuals")
+
+# 3. Cross Validation Comparison
+cv_df = crossv_mc(birthweight, n = 100) %>% 
+  mutate(
+    train = map(train, as_tibble),
+    test = map(test, as_tibble)
+  )
+
+cv_results = cv_df %>% 
+  mutate(
+    # Define the three models
+    model_proposed  = map(train, ~lm(bwt ~ gaweeks + ppbmi + smoken + wtgain + mrace + babysex, data = .x)),
+    model_main_eff  = map(train, ~lm(bwt ~ blength + gaweeks, data = .x)),
+    model_interact  = map(train, ~lm(bwt ~ bhead * blength * babysex, data = .x))
+  ) %>% 
+  mutate(
+    # Calculate RMSE for each
+    rmse_proposed = map2_dbl(model_proposed, test, ~rmse(model = .x, data = .y)),
+    rmse_main_eff = map2_dbl(model_main_eff, test, ~rmse(model = .x, data = .y)),
+    rmse_interact = map2_dbl(model_interact, test, ~rmse(model = .x, data = .y))
+  )
+
+# Visualize Comparison
+cv_results %>% 
+  select(starts_with("rmse")) %>% 
+  pivot_longer(
+    everything(),
+    names_to = "model", 
+    values_to = "rmse",
+    names_prefix = "rmse_"
+  ) %>% 
+  mutate(model = fct_reorder(model, rmse)) %>% 
+  ggplot(aes(x = model, y = rmse)) + 
+  geom_violin() +
+  labs(title = "Cross-validated RMSE Comparison", x = "Model", y = "RMSE")
+```
+1. Data Loading and Cleaning
+The dataset was examined for missing values and structural consistency.
+
+Missing Data: No missing values were found in any of the columns (0 nulls across all variables).
+
+Data Types: Categorical variables encoded as numbers were identified for conversion to factors:
+
+babysex (1 = Male, 2 = Female)
+
+frace (Father's race)
+
+mrace (Mother's race)
+
+malform (Presence of malformations)
+
+2. Proposed Regression Model
+Model Proposal: I proposed a hypothesis-driven model focusing on maternal characteristics and gestation, which are pre-birth determinants of weight. This approach is often useful for establishing risk factors before the baby is born and measured.
+
+Predictors Selected: gaweeks (Gestational Age), ppbmi (Pre-pregnancy BMI), smoken (Smoking status), wtgain (Mother's weight gain), mrace (Mother's race), and babysex.
+
+Rationale:
+
+Gestational Age: The primary determinant of fetal growth.
+
+Maternal Health (BMI & Weight Gain): Indicators of nutritional status and placental support.
+
+Smoking: A well-established risk factor for low birthweight.
+
+Demographics (Race & Sex): Accounts for known population-level differences in birth size.
+
+Residual Analysis: The plot of residuals against fitted values (shown below) suggests the model is reasonably well-behaved. The residuals bounce randomly around 0, though there is some evidence of outliers at lower birth weights where the model over-predicts (residuals are negative).
+
+3. Model Comparison (Cross-Validation)
+We compared three models using Monte Carlo Cross-Validation (100 splits, 80/20 train/test split). The models were:
+
+Proposed: bwt ~ gaweeks + ppbmi + smoken + wtgain + mrace + babysex
+
+Main Effects: bwt ~ blength + gaweeks
+
+Interactions: bwt ~ bhead * blength * babysex (Three-way interaction)
+
+Results: The comparison of Root Mean Squared Error (RMSE) distributions is visualized below.
+
+Interpretation:
+
+The Interaction Model (Model 3) is the best predictor. It has the lowest RMSE by a significant margin. This is expected because head circumference (bhead) and body length (blength) are direct physical measurements of the baby's size at birth. They are essentially proxies for weight itself.
+
+The Main Effects Model (Model 2) performs second best, again because it includes blength.
+
+The Proposed Model (Model 1) has the highest prediction error. While biologically meaningful for identifying risk factors (like smoking), maternal characteristics are less precise at predicting the exact gram weight of a specific baby compared to measuring the baby's length and head size directly.
