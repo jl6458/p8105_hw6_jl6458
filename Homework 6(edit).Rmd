@@ -272,8 +272,12 @@ print(ci_results)
 
 ```
 
+Description of Distributions Distribution: Since tmin is a very strong predictor of tmax (temperature minimums and maximums are highly correlated), the  distribution will likely be clustered around a high value (e.g., 0.90 - 0.92). It may be slightly left-skewed.
+
+Distribution: This distribution is usually roughly bell-shaped (normal). Note: If the coefficient for prcp is negative in some samples (which can happen since rain often lowers max temperature), the product will be negative, and the log function will produce NaNs. The distribution plot only represents the samples where the relationship was positive.
+
 Interpretation:
-The resulting table gives you the 95% confidence intervals. For example, if r2_lower is 0.89 and r2_upper is 0.93, we are 95% confident that the true $r^2$ of this model lies between those values based on the bootstrap approximation
+The resulting table gives you the 95% confidence intervals. For example, if r2_lower is 0.89 and r2_upper is 0.93, we are 95% confident that the true of this model lies between those values based on the bootstrap approximation
 
 # Problem 3
 analyze data gathered to understand the effects of several variables on a child's birthweight.
