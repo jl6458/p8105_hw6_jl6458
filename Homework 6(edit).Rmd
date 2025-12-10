@@ -272,6 +272,9 @@ print(ci_results)
 
 ```
 
+Interpretation:
+The resulting table gives you the 95% confidence intervals. For example, if r2_lower is 0.89 and r2_upper is 0.93, we are 95% confident that the true $r^2$ of this model lies between those values based on the bootstrap approximation
+
 # Problem 3
 analyze data gathered to understand the effects of several variables on a child's birthweight.
 dataset consists of roughly 4000 children and incldues the following variables:
