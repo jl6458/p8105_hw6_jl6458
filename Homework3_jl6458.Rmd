@@ -3,7 +3,6 @@ title: "Homework 3"
 output: github_document
 ---
 # Problem 2
-
 ```{r setup, include=FALSE}
 library(tidyverse)
 library(janitor)
@@ -23,9 +22,6 @@ theme_set(theme_minimal() + theme(legend.position = "bottom"))
 ```
 
 ## Data Import and Cleaning
-
-This problem uses Zillow rental data for NYC. We import two datasets: a ZIP code reference file containing borough and neighborhood information, and Zillow's Observed Rent Index (ZORI) data with monthly rental prices from 2015-2024.
-
 ```{r data_import}
 # Import ZIP Code database
 zip_codes <- 
@@ -89,11 +85,20 @@ zillow_tidy |> count(borough)
 head(zillow_tidy)
 ```
 
-The tidied dataset contains `r nrow(zillow_tidy)` observations across `r n_distinct(zillow_tidy$zip_code)` ZIP codes, spanning `r min(zillow_tidy$year)` to `r max(zillow_tidy$year)`.
-
 ## ZIP Code Observation Counts
+1. ZIP Code Observation Counts
+ZIP codes observed 116 times (Complete Coverage): 47
+ZIP codes observed fewer than 10 times (Sparse Coverage): 25
+Why are some ZIP codes observed rarely while others appear every month? 
 
-There are 116 months between January 2015 and August 2024. We examine how many ZIP codes have complete versus sparse data coverage.
+ZIP codes with sparse rental data likely have: 
+(1) limited rental market activity due to predominantly owner-occupied housing, 
+(2) commercial or industrial zoning with few residential units, 
+(3) insufficient Zillow listings to generate statistically reliable rent estimates, or 
+(4) recent residential development that only began generating rental data in recent years.
+
+Conversely, ZIP codes in dense residential areas with active rental markets (e.g., Manhattan, central Brooklyn) have consistent coverage throughout the study period.
+
 
 ```{r observation_counts}
 obs_counts <- 
@@ -117,16 +122,14 @@ obs_counts |>
   kable(col.names = c("Coverage Category", "Number of ZIP Codes"))
 ```
 
-**Findings:**
-
-- **`r n_116` ZIP codes** are observed all 116 times (complete monthly data from January 2015 to August 2024)
-- **`r n_under_10` ZIP codes** are observed fewer than 10 times
-
-**Why are some ZIP codes observed rarely while others appear every month?**
-
-ZIP codes with sparse rental data likely have: (1) limited rental market activity due to predominantly owner-occupied housing, (2) commercial or industrial zoning with few residential units, (3) insufficient Zillow listings to generate statistically reliable rent estimates, or (4) recent residential development that only began generating rental data in recent years. Conversely, ZIP codes in dense residential areas with active rental markets (e.g., Manhattan, central Brooklyn) have consistent coverage throughout the study period.
 
 ## Average Rental Price by Borough and Year
+Trends:
+Manhattan Premium: Manhattan consistently maintains the highest rents, typically $500-$1,000 higher than Brooklyn.
+
+Pandemic Dip: A distinct drop or stagnation occurred in 2020-2021, particularly in Manhattan and Queens.
+
+Post-Pandemic Surge: Since 2022, there has been a sharp increase across all boroughs, with 2023 and 2024 seeing record highs.
 
 ```{r borough_year_table}
 borough_year_table <- 
@@ -145,17 +148,12 @@ kable(
 )
 ```
 
-**Trends observed:**
-
-- **Manhattan** consistently commands the highest rents, averaging approximately $3,500–$4,500/month depending on year
-- **Brooklyn** follows as the second most expensive borough, with rents roughly $500–$1,000 below Manhattan
-- **Queens** and **Staten Island** occupy the middle tier, with Queens slightly higher
-- **The Bronx** has the lowest average rents across all years
-- All boroughs experienced a **COVID-19 rental dip in 2020-2021**, most pronounced in Manhattan where average rents dropped notably
-- **Post-pandemic recovery (2022-2024)** shows steep rent increases across all boroughs, with most exceeding pre-pandemic levels by 2023
-
 ## NYC Rental Price Trends by ZIP Code
+Trends over time The top panels of the graphic below visualize the monthly rent trends for each ZIP code.
 
+Volatility: Manhattan shows the most significant volatility, with a dramatic V-shaped dip during the COVID-19 pandemic.
+
+Uniformity: The Bronx and Staten Island (where data is available) show flatter, more consistent trends compared to the rapid appreciation seen in parts of Brooklyn and Manhattan.
 ```{r trend_plot, fig.height=5}
 plot_trends <- 
   zillow_tidy |> 
@@ -180,16 +178,10 @@ plot_trends <-
 plot_trends
 ```
 
-**Comments:**
-
-- **Manhattan** displays the widest range of rental prices, from ~$2,000 to over $7,000/month, reflecting the diversity from Harlem to the Upper East Side and Tribeca
-- The **COVID-19 impact** is most visible in Manhattan, where many ZIP codes show sharp declines starting in mid-2020, followed by a V-shaped recovery
-- **Brooklyn** shows a moderate spread with several high-rent ZIP codes (likely Williamsburg, DUMBO, Brooklyn Heights) approaching Manhattan levels
-- **Queens, Staten Island, and the Bronx** show tighter clustering with less variability, indicating more uniform rental markets
-- All boroughs exhibit **strong upward trends post-2021**, with 2023-2024 rents exceeding pre-pandemic peaks
-
 ## Distribution of 2023 Average Rental Prices
+Spread: Manhattan has the widest spread, reflecting its mix of luxury areas (e.g., Tribeca) and relatively more affordable neighborhoods (e.g., Inwood).
 
+Affordability: The Bronx has the lowest median rent and the tightest distribution, indicating a more homogeneous and affordable market relative to the rest of the city.
 ```{r distribution_plot, fig.height=4}
 rent_2023 <- 
   zillow_tidy |> 
@@ -215,17 +207,7 @@ plot_dist <-
 
 plot_dist
 ```
-
-**Comments:**
-
-- **Manhattan** has the highest median rent (~$4,000) and the widest distribution, with ZIP codes ranging from ~$2,000 (Upper Manhattan/Harlem) to over $7,000 (Tribeca, Financial District)
-- **Brooklyn** shows the second-highest median with moderate spread; the distribution appears slightly bimodal, reflecting the contrast between gentrified waterfront areas and more affordable inland neighborhoods
-- **Queens** clusters tightly around $2,500–$3,500, indicating a relatively homogeneous rental market
-- **Staten Island** shows low variability around $2,500, consistent with its suburban character
-- **The Bronx** has the lowest median (~$2,200) with a tight distribution, reflecting its position as the most affordable borough
-
 ## Combined Figure
-
 ```{r combined_plot, fig.width=12, fig.height=10}
 combined_plot <- 
   plot_trends / plot_dist + 
@@ -254,32 +236,7 @@ ggsave(
 )
 ```
 
-The combined figure has been saved to `results/nyc_rent_analysis.png`.
-
-
 # Problem 3
-Accelerometers
-measure: MIMS (1min interval)
-accelerometer data: n = 250 (NHANES)
-demographic data = 
-accelerometer data =
-variable: MIMS (mims values for each minute of a 24-hour day starting at midnight)
-load - tidy - merge - organize the data set
-final dataset: all originally observed variables (exclude: participants less than 21, missing demographic data)
-and encode data with reasonable variable classes 
-
-produce a reader-friendly table for the number of men and women in each education category
-create a visualation of the age distribution for men and women in each education category
-comment on these items
-
-
-traditional analyses of accelerometer data focus on the total activity over the day
-use tidied dataset, aggregate across minutes to create a total activity variable for each participant.
-Plot these total activities again age
-your plot should compare ment to women and have separate panels for each education level
-include a trend line or a smooth to illustrate differences
-comment on your plot
-
 ```{r}
 library(tidyverse)
 library(knitr)
@@ -394,3 +351,32 @@ nhanes_long %>%
   )
 ```
 
+## Comments:
+Education vs. Sex Table:
+The sample is relatively balanced between men and women within the "Less than high school" and "More than high school" categories. The "High school equivalent" group has a slightly higher proportion of men. The "More than high school" category has the largest number of participants overall.
+
+Age Distribution by Education and Sex:
+- Less than high school: The distribution is skewed towards older ages for both sexes, suggesting that younger participants in this dataset are more likely to have completed high school.
+
+- High school equivalent: This group shows a broader age range, with a mix of younger and middle-aged adults.
+
+- More than high school: The distribution is fairly uniform but leans slightly younger compared to the "Less than high school" group, reflecting a cohort that has had access to higher education.
+
+Total Daily Activity vs. Age:
+- General Trend: As expected, total physical activity tends to decline with age across all groups.
+
+- Sex Differences: In the "Less than high school" and "High school equivalent" categories, men generally show higher total activity levels than women, particularly in younger to middle age. In the "More than high school" category, the activity levels between men and women are more comparable, and the decline with age appears more gradual.
+
+- Education: The "More than high school" group appears to maintain slightly higher activity levels into older age compared to the "Less than high school" group
+
+24-Hour Activity Time Courses: 
+- Daily Pattern: All groups show a clear circadian rhythm: activity is near zero during sleep hours (Midnight to ~6am), rises sharply in the morning, stays relatively high during the day, and tapers off in the evening.
+
+Sex Differences:
+- Less than high school: Men show a higher peak in activity during the working day (roughly 8am to 4pm) compared to women. This might reflect manual labor jobs.
+
+- High school equivalent: A similar pattern is observed, with men maintaining higher activity throughout the midday period.
+
+- More than high school: The profiles for men and women are much more similar, with overlapping curves throughout the day. This could suggest similar occupational patterns (e.g., sedentary office work) for both sexes in this education bracket.
+
+- Peaks: Activity generally peaks around mid-morning (8am - 10am) and again in the late afternoon/early evening (5pm - 7pm) for some groups, likely corresponding to commuting or exercise.
