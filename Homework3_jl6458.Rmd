@@ -1,0 +1,396 @@
+---
+title: "Homework 3"
+output: github_document
+---
+# Problem 2
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(janitor)
+library(lubridate)
+library(patchwork)
+library(knitr)
+
+knitr::opts_chunk$set(
+  fig.width = 10, 
+  fig.asp = 0.6,
+  out.width = "90%",
+  message = FALSE,
+  warning = FALSE
+)
+
+theme_set(theme_minimal() + theme(legend.position = "bottom"))
+```
+
+## Data Import and Cleaning
+
+This problem uses Zillow rental data for NYC. We import two datasets: a ZIP code reference file containing borough and neighborhood information, and Zillow's Observed Rent Index (ZORI) data with monthly rental prices from 2015-2024.
+
+```{r data_import}
+# Import ZIP Code database
+zip_codes <- 
+  read_csv("Zip Codes.csv") |> 
+  clean_names() |> 
+  select(zip_code, county, neighborhood)
+
+# Check county values
+zip_codes |> count(county)
+```
+
+```{r import_zillow}
+# Import Zillow Rental Data
+zillow_raw <- 
+  read_csv("Zip_zori_uc_sfrcondomfr_sm_month_NYC.csv") |> 
+  clean_names()
+
+# Check column names (first few and date columns)
+names(zillow_raw)[1:12]
+```
+
+```{r data_cleaning}
+# Tidy the Zillow Dataset
+zillow_tidy <- 
+  zillow_raw |> 
+  select(region_name, starts_with("x20")) |>
+  pivot_longer(
+    cols = starts_with("x20"),
+    names_to = "date_str",
+    values_to = "rent_price"
+  ) |> 
+  mutate(
+    # Remove 'x' prefix and convert underscores back to dashes for parsing
+    date_clean = str_remove(date_str, "^x"),
+    date_clean = str_replace_all(date_clean, "_", "-"),
+    date = ymd(date_clean),
+    year = year(date),
+    month = month(date)
+  ) |> 
+  rename(zip_code = region_name) |> 
+  left_join(zip_codes, by = "zip_code") |>
+  drop_na(rent_price, county) |>
+  mutate(
+    borough = case_when(
+      county == "New York" ~ "Manhattan",
+      county == "Kings"    ~ "Brooklyn",
+      county == "Queens"   ~ "Queens",
+      county == "Bronx"    ~ "Bronx",
+      county == "Richmond" ~ "Staten Island",
+      TRUE ~ NA_character_
+    )
+  ) |> 
+  filter(!is.na(borough)) |>
+  mutate(
+    borough = factor(borough, levels = c("Manhattan", "Brooklyn", "Queens", "Staten Island", "Bronx"))
+  ) |> 
+  select(zip_code, borough, neighborhood, date, year, month, rent_price)
+
+# Verify the data
+zillow_tidy |> count(borough)
+head(zillow_tidy)
+```
+
+The tidied dataset contains `r nrow(zillow_tidy)` observations across `r n_distinct(zillow_tidy$zip_code)` ZIP codes, spanning `r min(zillow_tidy$year)` to `r max(zillow_tidy$year)`.
+
+## ZIP Code Observation Counts
+
+There are 116 months between January 2015 and August 2024. We examine how many ZIP codes have complete versus sparse data coverage.
+
+```{r observation_counts}
+obs_counts <- 
+  zillow_tidy |> 
+  group_by(zip_code, borough, neighborhood) |> 
+  summarize(n_obs = n(), .groups = "drop")
+
+n_116 <- obs_counts |> filter(n_obs == 116) |> nrow()
+n_under_10 <- obs_counts |> filter(n_obs < 10) |> nrow()
+
+# Distribution of observation counts
+obs_counts |> 
+  mutate(
+    obs_category = case_when(
+      n_obs == 116 ~ "Complete (116 months)",
+      n_obs < 10   ~ "Sparse (<10 months)",
+      TRUE         ~ "Partial (10-115 months)"
+    )
+  ) |> 
+  count(obs_category) |> 
+  kable(col.names = c("Coverage Category", "Number of ZIP Codes"))
+```
+
+**Findings:**
+
+- **`r n_116` ZIP codes** are observed all 116 times (complete monthly data from January 2015 to August 2024)
+- **`r n_under_10` ZIP codes** are observed fewer than 10 times
+
+**Why are some ZIP codes observed rarely while others appear every month?**
+
+ZIP codes with sparse rental data likely have: (1) limited rental market activity due to predominantly owner-occupied housing, (2) commercial or industrial zoning with few residential units, (3) insufficient Zillow listings to generate statistically reliable rent estimates, or (4) recent residential development that only began generating rental data in recent years. Conversely, ZIP codes in dense residential areas with active rental markets (e.g., Manhattan, central Brooklyn) have consistent coverage throughout the study period.
+
+## Average Rental Price by Borough and Year
+
+```{r borough_year_table}
+borough_year_table <- 
+  zillow_tidy |> 
+  group_by(borough, year) |> 
+  summarize(mean_rent = mean(rent_price, na.rm = TRUE), .groups = "drop") |> 
+  pivot_wider(
+    names_from = year, 
+    values_from = mean_rent
+  )
+
+kable(
+  borough_year_table, 
+  digits = 0, 
+  caption = "Average Rental Price by Borough and Year ($)"
+)
+```
+
+**Trends observed:**
+
+- **Manhattan** consistently commands the highest rents, averaging approximately $3,500–$4,500/month depending on year
+- **Brooklyn** follows as the second most expensive borough, with rents roughly $500–$1,000 below Manhattan
+- **Queens** and **Staten Island** occupy the middle tier, with Queens slightly higher
+- **The Bronx** has the lowest average rents across all years
+- All boroughs experienced a **COVID-19 rental dip in 2020-2021**, most pronounced in Manhattan where average rents dropped notably
+- **Post-pandemic recovery (2022-2024)** shows steep rent increases across all boroughs, with most exceeding pre-pandemic levels by 2023
+
+## NYC Rental Price Trends by ZIP Code
+
+```{r trend_plot, fig.height=5}
+plot_trends <- 
+  zillow_tidy |> 
+  ggplot(aes(x = date, y = rent_price, group = zip_code, color = borough)) +
+  geom_line(alpha = 0.4, linewidth = 0.5) +
+  facet_wrap(~borough, nrow = 1) +
+  scale_y_continuous(labels = scales::comma) +
+  scale_color_brewer(palette = "Set1") +
+  labs(
+    title = "NYC Rental Prices by ZIP Code (2015–2024)",
+    subtitle = "Each line represents a single ZIP code's monthly rent over time",
+    x = "Date",
+    y = "Monthly Rent ($)",
+    color = "Borough"
+  ) +
+  theme(
+    legend.position = "none",
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 8),
+    strip.text = element_text(face = "bold")
+  )
+
+plot_trends
+```
+
+**Comments:**
+
+- **Manhattan** displays the widest range of rental prices, from ~$2,000 to over $7,000/month, reflecting the diversity from Harlem to the Upper East Side and Tribeca
+- The **COVID-19 impact** is most visible in Manhattan, where many ZIP codes show sharp declines starting in mid-2020, followed by a V-shaped recovery
+- **Brooklyn** shows a moderate spread with several high-rent ZIP codes (likely Williamsburg, DUMBO, Brooklyn Heights) approaching Manhattan levels
+- **Queens, Staten Island, and the Bronx** show tighter clustering with less variability, indicating more uniform rental markets
+- All boroughs exhibit **strong upward trends post-2021**, with 2023-2024 rents exceeding pre-pandemic peaks
+
+## Distribution of 2023 Average Rental Prices
+
+```{r distribution_plot, fig.height=4}
+rent_2023 <- 
+  zillow_tidy |> 
+  filter(year == 2023) |> 
+  group_by(zip_code, borough) |> 
+  summarize(mean_rent_2023 = mean(rent_price, na.rm = TRUE), .groups = "drop")
+
+plot_dist <- 
+  rent_2023 |> 
+  ggplot(aes(x = borough, y = mean_rent_2023, fill = borough)) +
+  geom_violin(alpha = 0.5, trim = FALSE) +
+  geom_boxplot(width = 0.15, alpha = 0.8, outlier.shape = NA) +
+  geom_jitter(width = 0.1, alpha = 0.4, size = 1.5) +
+  scale_y_continuous(labels = scales::comma) +
+  scale_fill_brewer(palette = "Set1") +
+  labs(
+    title = "Distribution of 2023 Average Rental Prices by Borough",
+    subtitle = "Each point represents a ZIP code's average monthly rent in 2023",
+    x = "Borough",
+    y = "Average Monthly Rent ($)"
+  ) +
+  theme(legend.position = "none")
+
+plot_dist
+```
+
+**Comments:**
+
+- **Manhattan** has the highest median rent (~$4,000) and the widest distribution, with ZIP codes ranging from ~$2,000 (Upper Manhattan/Harlem) to over $7,000 (Tribeca, Financial District)
+- **Brooklyn** shows the second-highest median with moderate spread; the distribution appears slightly bimodal, reflecting the contrast between gentrified waterfront areas and more affordable inland neighborhoods
+- **Queens** clusters tightly around $2,500–$3,500, indicating a relatively homogeneous rental market
+- **Staten Island** shows low variability around $2,500, consistent with its suburban character
+- **The Bronx** has the lowest median (~$2,200) with a tight distribution, reflecting its position as the most affordable borough
+
+## Combined Figure
+
+```{r combined_plot, fig.width=12, fig.height=10}
+combined_plot <- 
+  plot_trends / plot_dist + 
+  plot_layout(heights = c(1.5, 1)) +
+  plot_annotation(
+    title = "NYC Rental Market Analysis (2015–2024)",
+    subtitle = "Zillow Observed Rent Index (ZORI) for Single-Family Residences and Condominiums",
+    theme = theme(
+      plot.title = element_text(size = 16, face = "bold"),
+      plot.subtitle = element_text(size = 12, color = "gray40")
+    )
+  )
+
+combined_plot
+```
+
+```{r save_plot}
+# Create results directory and save combined plot
+dir.create("results", showWarnings = FALSE)
+ggsave(
+  "results/nyc_rent_analysis.png", 
+  combined_plot, 
+  width = 12, 
+  height = 10, 
+  dpi = 300
+)
+```
+
+The combined figure has been saved to `results/nyc_rent_analysis.png`.
+
+
+# Problem 3
+Accelerometers
+measure: MIMS (1min interval)
+accelerometer data: n = 250 (NHANES)
+demographic data = 
+accelerometer data =
+variable: MIMS (mims values for each minute of a 24-hour day starting at midnight)
+load - tidy - merge - organize the data set
+final dataset: all originally observed variables (exclude: participants less than 21, missing demographic data)
+and encode data with reasonable variable classes 
+
+produce a reader-friendly table for the number of men and women in each education category
+create a visualation of the age distribution for men and women in each education category
+comment on these items
+
+
+traditional analyses of accelerometer data focus on the total activity over the day
+use tidied dataset, aggregate across minutes to create a total activity variable for each participant.
+Plot these total activities again age
+your plot should compare ment to women and have separate panels for each education level
+include a trend line or a smooth to illustrate differences
+comment on your plot
+
+```{r}
+library(tidyverse)
+library(knitr)
+library(patchwork)
+
+knitr::opts_chunk$set(
+  fig.width = 10,
+  fig.asp = .6,
+  out.width = "90%"
+)
+
+theme_set(theme_minimal() + theme(legend.position = "bottom"))
+```
+
+```{r}
+# Load and tidy covariates
+covars = 
+  read_csv("nhanes_covar.csv", skip = 4) %>% 
+  janitor::clean_names() %>% 
+  filter(age >= 21) %>% 
+  drop_na(sex, age, bmi, education) %>% 
+  mutate(
+    sex = factor(sex, levels = c(1, 2), labels = c("Male", "Female")),
+    education = factor(education, 
+                       levels = c(1, 2, 3), 
+                       labels = c("Less than high school", 
+                                  "High school equivalent", 
+                                  "More than high school"))
+  )
+
+# Load accelerometer data
+accel = 
+  read_csv("nhanes_accel.csv") %>% 
+  janitor::clean_names()
+
+# Merge datasets
+nhanes_df = 
+  inner_join(covars, accel, by = "seqn")
+
+# Calculate total activity per participant
+nhanes_agg = 
+  nhanes_df %>% 
+  rowwise() %>% 
+  mutate(
+    total_activity = sum(c_across(starts_with("min")))
+  ) %>% 
+  select(seqn, sex, age, bmi, education, total_activity) %>% 
+  ungroup()
+
+# Create a long-format version for 24-hour plots
+nhanes_long = 
+  nhanes_df %>% 
+  pivot_longer(
+    cols = starts_with("min"),
+    names_to = "minute",
+    names_prefix = "min",
+    values_to = "mims"
+  ) %>% 
+  mutate(minute = as.numeric(minute)) %>% 
+  select(seqn, sex, age, education, minute, mims)
+```
+
+```{r}
+# Table of Sex vs Education
+nhanes_agg %>% 
+  count(education, sex) %>% 
+  pivot_wider(names_from = sex, values_from = n) %>% 
+  kable(caption = "Number of Men and Women in Each Education Category")
+```
+
+
+```{r}
+# Age distribution visualization
+nhanes_agg %>% 
+  ggplot(aes(x = age, fill = sex)) +
+  geom_density(alpha = 0.5) +
+  facet_grid(. ~ education) +
+  labs(
+    title = "Age Distribution by Education and Sex",
+    x = "Age (years)",
+    y = "Density"
+  )
+```
+
+```{r}
+nhanes_agg %>% 
+  ggplot(aes(x = age, y = total_activity, color = sex)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(se = FALSE) +
+  facet_grid(. ~ education) +
+  labs(
+    title = "Total Daily Activity vs. Age",
+    subtitle = "Comparing trends by Sex and Education Level",
+    x = "Age (years)",
+    y = "Total Activity (MIMS)"
+  )
+```
+
+```{r}
+nhanes_long %>% 
+  ggplot(aes(x = minute, y = mims, color = sex)) +
+  geom_smooth(se = FALSE) +
+  facet_grid(. ~ education) +
+  scale_x_continuous(
+    breaks = seq(0, 1440, by = 240), 
+    labels = c("Midnight", "4am", "8am", "Noon", "4pm", "8pm", "Midnight")
+  ) +
+  labs(
+    title = "24-Hour Activity Time Courses",
+    x = "Time of Day",
+    y = "Activity (MIMS)"
+  )
+```
+
